@@ -66,7 +66,7 @@ A chained certificate with the intermediate included is also written to
 domain.chain.crt. You can change the --output directory to something else from
 the working directory as well.
 
-(If you're passing your own CSR, the given domains can be whatever you want.)
+If you're passing your own CSR, do not specify any domains or a key parameters.
 
 Note that unlike many other certification authorities, ACME does not add a
 non-www or www alias to certificates. If you want this to happen, add it
@@ -191,11 +191,55 @@ def main():
         description=DESCRIPTION_ISSUE,
         formatter_class=Formatter,
     )
-    issue.add_argument('domain', help="One or more domain names to include in the certificate", nargs='+')
-    issue.add_argument('--key-size', '-b', help="The key size to use for the certificate", type=int, default=DEFAULT_CERT_KEY_SIZE)
-    issue.add_argument('--key-file', '-k', help="Existing key file to use for the certificate")
-    issue.add_argument('--csr-file', help="Existing signing request to use")
-    issue.add_argument('--output', '-o', help="The output directory for created objects", default='.')
+    # argparse cannot easily represent the complete required structure here.
+    #
+    # Specifically, you cannot have a required mutually exclusive group that
+    # contains a required positional argument.
+    # 1. positional arguments cannot be required=False
+    #    TypeError: 'required' is an invalid argument for positionals
+    # 2. Mutually exclusive arguments cannot be required
+    #    ValueError: mutually exclusive arguments must be optional
+    # 3. How to get a positional argument with property required=False:
+    #    nargs='?'
+    #    OR
+    #    nargs='*', default=[]
+    # 4. Since we allow multiple domains, we must use nargs='*' (zero-or-more)
+    # 5. If we put domains/key-size/key-file in a group, --help is broken.
+    #
+    # The exclusion structure here:
+    # (CSR) XOR (Domains) == true
+    # (CSR) XOR (key-size XOR key-file) == true
+    # (key-size) XOR (key-file) == true
+    #
+    # Valid variants:
+    # - CSR
+    # - Domain
+    # - Domain, key-size
+    # - Domain, key-file
+    #
+    # --output is optional and always allowed.
+    #
+    # At this time, passing a CSR simply causes key-size & key-file to be ignored.
+    issue.add_argument('--output',
+                       '-o',
+                       help="The output directory for created objects",
+                       default='.')
+    issue_mode = issue.add_mutually_exclusive_group(required=True)
+    issue_mode.add_argument('--csr-file',
+                            help="Existing signing request to use")
+    issue_mode.add_argument('domain',
+                            help="One or more domain names to include in the certificate",
+                            nargs='*',
+                            default=[])
+    issue_keys = issue.add_mutually_exclusive_group(required=False)
+    issue_keys.add_argument('--key-size',
+                            '-b',
+                            help="The key size to use for the certificate",
+                            type=int,
+                            default=DEFAULT_CERT_KEY_SIZE)
+    issue_keys.add_argument('--key-file',
+                            '-k',
+                            help="Existing key file to use for the certificate")
     issue.set_defaults(func=_issue)
 
     # Certificate revocation
